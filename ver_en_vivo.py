@@ -8,19 +8,27 @@ Muestra un video o una cámara en vivo, con las placas detectadas y leídas enci
                                                         la cámara; en fracciones x0,y0,x1,y1)
 
 Abre http://127.0.0.1:8801 : el video con un rectángulo en cada placa y, al lado, cada placa
-leída con su recorte, para comparar a ojo si la leyó bien. Va al ritmo real del video (si el
-análisis se atrasa, se saltan cuadros). No guarda nada en disco: las placas de la calle son
-datos personales.
+leída con su recorte. Las placas también quedan disponibles para otros programas (ver api.py):
+http://127.0.0.1:8801/api/placas
+
+  --webhook http://servidor/placas   manda cada placa nueva por POST, con su foto
+  --red                              responde también a otras PC de la red (pide un token)
+  --token CLAVE                      el token a pedir (si no se da, con --red se inventa uno)
+  --puerto 8801
+
+No guarda nada en disco: las placas son datos personales.
 """
 import base64
 import io
 import json
 import os
+import secrets
 import sys
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 CARPETA = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, CARPETA)
@@ -29,6 +37,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import av
 from PIL import Image, ImageDraw
 
+from api import Placas
 from camara_ip import ES_IP, conectar
 from camara import (CAMBIO_DE_CARRO, SILENCIO_PARA_CERRAR, VOTOS_MINIMOS, Pista, confiable, encima, fuente,
                     marcar_cortadas, repetida)
@@ -50,6 +59,8 @@ class Estado:
     lecturas = []
     recientes = deque(maxlen=10)
     datos = {"segundo": 0, "duracion": 0, "cuadros_por_segundo": 0, "analisis_por_segundo": 0, "detectadas": 0}
+    placas = Placas()  # lo que ve la API
+    token = None  # si hay token, todas las direcciones lo piden
 
 
 PAGINA = """<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Placas en vivo</title>
@@ -75,16 +86,19 @@ main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; paddin
 .reciente.mala { color:var(--suave) }
 </style></head><body>
 <header><h1>Placas en vivo <span class="suave" id="titulo"></span></h1><div class="suave" id="datos"></div></header>
-<main><div><img id="video" src="/flujo" alt="Video con las placas detectadas">
+<main><div><img id="video" alt="Video con las placas detectadas">
 <div class="suave" style="margin:14px 0 8px">Lo último que vio (aunque todavía no lo anote)</div>
 <div class="recientes" id="recientes"></div></div>
 <div><div class="suave" style="margin-bottom:8px" id="cuenta">Placas leídas</div><div class="lista" id="lista"></div></div></main>
 <script>
 const esc = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const token = new URLSearchParams(location.search).get("token");
+const conToken = url => token ? url + "?token=" + encodeURIComponent(token) : url;
+document.getElementById("video").src = conToken("/flujo");
 let vistas = 0;
 async function actualizar() {
   try {
-    const e = await (await fetch("/api/estado", {cache:"no-store"})).json();
+    const e = await (await fetch(conToken("/api/estado"), {cache:"no-store"})).json();
     const d = e.datos, m = s => Math.floor(s/60) + ":" + String(Math.floor(s%60)).padStart(2,"0");
     document.getElementById("datos").textContent = (d.duracion ? `${m(d.segundo)} de ${m(d.duracion)}` : "en vivo")
       + ` · ${d.cuadros_por_segundo} cuadros/s · ${d.analisis_por_segundo} análisis/s · ${d.detectadas} placas detectadas`;
@@ -109,22 +123,50 @@ class Atender(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def responder(self, codigo, cuerpo, tipo="application/json"):
+        if not isinstance(cuerpo, bytes):
+            cuerpo = json.dumps(cuerpo, ensure_ascii=False).encode()
+        self.send_response(codigo)
+        self.send_header("Content-Type", tipo + ("; charset=utf-8" if tipo.startswith(("text", "application")) else ""))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
     def do_GET(self):
-        if self.path == "/":
-            cuerpo = PAGINA.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(cuerpo)
-        elif self.path == "/api/estado":
-            cuerpo = json.dumps({"lecturas": Estado.lecturas, "recientes": list(Estado.recientes)[::-1],
-                                 "datos": Estado.datos}, ensure_ascii=False).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(cuerpo)
-        elif self.path == "/flujo":
+        partes = urlsplit(self.path)
+        ruta, consulta = partes.path, parse_qs(partes.query)
+        if Estado.token:  # en el link (?token=) o en la cabecera "Authorization: Bearer ..."
+            dado = consulta.get("token", [""])[0] or self.headers.get("Authorization", "").removeprefix("Bearer ")
+            if not secrets.compare_digest(dado.encode(), Estado.token.encode()):
+                return self.responder(401, {"error": "falta el token o no es el correcto"})
+        if ruta == "/":
+            self.responder(200, PAGINA.encode(), "text/html")
+        elif ruta == "/api/estado":
+            self.responder(200, {"lecturas": Estado.lecturas, "recientes": list(Estado.recientes)[::-1],
+                                 "datos": Estado.datos})
+        elif ruta == "/api/placas":
+            try:
+                desde = int(consulta.get("desde", ["0"])[0])
+            except ValueError:
+                return self.responder(400, {"error": "desde tiene que ser un número"})
+            self.responder(200, Estado.placas.desde(desde))
+        elif ruta == "/api/placas/ultima":
+            ultima = Estado.placas.ultima()
+            if ultima:
+                self.responder(200, ultima)
+            else:
+                self.responder(404, {"error": "todavía no hay placas"})
+        elif ruta.startswith("/api/placas/") and ruta.endswith("/foto"):
+            numero = ruta.split("/")[3]
+            jpg = Estado.placas.foto(int(numero)) if numero.isdigit() else None
+            if jpg:
+                self.responder(200, jpg, "image/jpeg")
+            else:
+                self.responder(404, {"error": "no existe esa placa"})
+        elif ruta == "/api/eventos":
+            self.eventos(consulta)
+        elif ruta == "/flujo":
             # MJPEG: el navegador muestra cada JPEG nuevo que llega, como un video.
             self.send_response(200)
             self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=cuadro")
@@ -145,8 +187,28 @@ class Atender(BaseHTTPRequestHandler):
                 with Estado.aviso:
                     Estado.mirando -= 1
         else:
-            self.send_response(404)
-            self.end_headers()
+            self.responder(404, {"error": "no existe"})
+
+    def eventos(self, consulta):
+        """Server-Sent Events: manda cada placa nueva apenas se lee. Si la conexión se corta, el
+        navegador (o EventSource) vuelve con Last-Event-ID y recibe lo que se perdió."""
+        previo = self.headers.get("Last-Event-ID") or consulta.get("desde", [None])[0]
+        ultimo = int(previo) if previo and previo.isdigit() else Estado.placas.ultimo_id
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            while True:
+                nuevas = Estado.placas.esperar(ultimo, 15)
+                for p in nuevas:
+                    self.wfile.write(f"id: {p['id']}\nevent: placa\ndata: {json.dumps(p, ensure_ascii=False)}\n\n".encode())
+                    ultimo = p["id"]
+                if not nuevas:
+                    self.wfile.write(b": sigo aqui\n\n")  # para que la conexión no se dé por muerta
+                self.wfile.flush()
+        except (ConnectionError, OSError):
+            pass
 
 
 class Lecturas:
@@ -172,6 +234,8 @@ class Lecturas:
         recorte.thumbnail((300, 150))
         jpg = io.BytesIO()
         recorte.save(jpg, "JPEG", quality=85)
+        Estado.placas.agregar(lectura["placa"], texto, seguridad, pasada.votos[texto],
+                              "ok" if es_confiable else "revisar", jpg.getvalue())
         Estado.lecturas.append({
             "id": len(Estado.lecturas), "texto": texto,
             "placa": lectura["placa"], "hora": f"{int(momento // 60)}:{momento % 60:04.1f}",
@@ -303,27 +367,39 @@ class Analisis(threading.Thread):
             self.hechos, self.reloj = 0, time.time()
 
 
+def opcion(nombre, si_no_esta=None):
+    return sys.argv[sys.argv.index(nombre) + 1] if nombre in sys.argv else si_no_esta
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return
-    fuente = sys.argv[1]
-    ignorar = None
-    if "--ignorar" in sys.argv:
-        ignorar = [float(v) for v in sys.argv[sys.argv.index("--ignorar") + 1].split(",")]
+    origen = sys.argv[1]
+    ignorar = [float(v) for v in opcion("--ignorar").split(",")] if "--ignorar" in sys.argv else None
+    puerto = int(opcion("--puerto", PUERTO))
+    Estado.placas = Placas(webhook=opcion("--webhook"))
+    Estado.token = opcion("--token") or (secrets.token_urlsafe(12) if "--red" in sys.argv else None)
     sistema = LectorDePlacas(insistir=False)  # video: una sola mirada por cuadro
     registro = Lecturas()
-    servidor = ThreadingHTTPServer(("127.0.0.1", PUERTO), Atender)
+    # Por defecto solo responde en esta PC. Con --red, a cualquiera de la red que tenga el token.
+    servidor = ThreadingHTTPServer(("0.0.0.0" if "--red" in sys.argv else "127.0.0.1", puerto), Atender)
     threading.Thread(target=servidor.serve_forever, daemon=True).start()
-    print(f"Abre http://127.0.0.1:{PUERTO}  (Ctrl+C para salir)\n")
+    enlace = f"?token={Estado.token}" if Estado.token else ""
+    print(f"Abre http://127.0.0.1:{puerto}/{enlace}   ·   placas para otros programas: /api/placas{enlace}")
+    if "--red" in sys.argv:
+        print(f"Desde otra PC: http://IP-DE-ESTA-PC:{puerto}/{enlace}")
+    if Estado.placas.webhook:
+        print("Cada placa nueva se manda también al webhook.")
+    print("(Ctrl+C para salir)\n")
 
-    en_vivo = bool(ES_IP.match(fuente)) or fuente.lower().startswith(("rtsp://", "http://", "https://"))
+    en_vivo = bool(ES_IP.match(origen)) or origen.lower().startswith(("rtsp://", "http://", "https://"))
 
     def abrir():
-        if ES_IP.match(fuente):  # una IP: usuario y clave salen del archivo, sin mostrarse nunca
-            return conectar(fuente, sys.argv[sys.argv.index("--credenciales") + 1])[0]
-        opciones = {"rtsp_transport": "tcp", "timeout": "5000000"} if fuente.lower().startswith("rtsp://") else {}
-        return av.open(fuente, options=opciones)
+        if ES_IP.match(origen):  # una IP: usuario y clave salen del archivo, sin mostrarse nunca
+            return conectar(origen, opcion("--credenciales"))[0]
+        opciones = {"rtsp_transport": "tcp", "timeout": "5000000"} if origen.lower().startswith("rtsp://") else {}
+        return av.open(origen, options=opciones)
 
     # --rapido: recorre el video lo más rápido que se pueda (para medir), analizando 5 cuadros
     # por cada segundo de video; no sirve para cámaras en vivo.

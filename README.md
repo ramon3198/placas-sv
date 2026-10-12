@@ -1,8 +1,8 @@
 # placas-sv
 
 Lector de placas de **El Salvador**, de carro y de moto. Conectas una cámara IP (o abres un
-video) y ves cada placa detectada y leída en vivo, o anotas cada vehículo que pasa con su hora y
-su foto. Si la cámara ve varios vehículos a la vez, sigue a cada uno por separado.
+video) y ves cada placa detectada y leída en vivo. Otros programas pueden recibir cada placa por
+una API HTTP o un webhook. Si la cámara ve varios vehículos a la vez, sigue a cada uno por separado.
 
 - Lee el diseño 2011, el diseño 2000, las provisionales y las series cortas como «P 1 CAB».
 - Tipos: P, A, C, M, AB, CC, CD, MI, V y N.
@@ -53,7 +53,39 @@ En Linux o Mac, igual con `python ver_en_vivo.py ...` y `python camara.py ...`.
 - **Para leer mejor:** obturador de la cámara en 1/250 s o más rápido (para que el carro no salga
   arrastrado) y la placa de frente, de 130 a 250 px de ancho, donde el carro va despacio.
 
-Las placas son datos personales: las páginas solo se abren desde la misma PC (127.0.0.1).
+Las placas son datos personales: por defecto las páginas solo se abren desde la misma PC (127.0.0.1).
+
+## Conectarlo con otro sistema (API)
+
+Mientras `ver_en_vivo` corre, las placas leídas quedan disponibles en JSON:
+
+| Dirección | Qué devuelve |
+|---|---|
+| `GET /api/placas` | las placas leídas (las últimas 1.000) |
+| `GET /api/placas?desde=12` | solo las que llegaron después de la 12: para consultar cada pocos segundos |
+| `GET /api/placas/ultima` | la última placa |
+| `GET /api/placas/12/foto` | la foto de la placa 12 (JPEG) |
+| `GET /api/eventos` | cada placa nueva apenas se lee ([Server-Sent Events](https://developer.mozilla.org/es/docs/Web/API/Server-sent_events)) |
+
+```json
+{"id": 12, "placa": "P123-456", "texto": "P123456", "fecha": "2026-10-12T10:56:14",
+ "seguridad": 0.977, "votos": 5, "estado": "ok", "foto": "/api/placas/12/foto"}
+```
+
+`estado` es `ok` o `revisar` (lectura dudosa: conviene que una persona la confirme).
+
+- **Webhook:** con `--webhook http://otro-servidor/placas`, cada placa nueva se manda por POST a esa
+  dirección, con el mismo JSON y la foto en base64 (`foto_jpg`). Es lo más fácil para abrir una pluma
+  o anotar la entrada en otro sistema.
+- **Desde otras PC de la red:** agrega `--red`. Entonces todo pide un token, que el programa muestra
+  al arrancar (o pon el tuyo con `--token CLAVE`). Va en el enlace (`?token=...`) o en la cabecera
+  `Authorization: Bearer ...`.
+- Todo queda en memoria: al cerrar el programa no queda nada guardado.
+
+```powershell
+curl http://127.0.0.1:8801/api/placas/ultima
+curl -N http://127.0.0.1:8801/api/eventos
+```
 
 ## Cómo funciona
 
