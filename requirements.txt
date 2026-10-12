@@ -3,6 +3,6 @@
 torch>=2.1
 torchvision>=0.16
 av>=11          # PyAV: video, cámaras RTSP y webcams
-pillow>=10
+pillow>=10.1    # 10.1 trae la letra de respaldo con tamaño (fuera de Windows)
 numpy>=1.24
 safetensors>=0.4

@@ -98,13 +98,6 @@ def bonito(texto):
     return f"{texto[:-3]}-{texto[-3:]}"
 
 
-def guardar_ficha(ruta, ancho):
-    import json
-
-    with open(ruta.replace(".safetensors", ".json"), "w", encoding="utf-8") as f:
-        json.dump({"ancho": ancho}, f)
-
-
 def cargar_entrenado(dispositivo, ruta=None):
     import json
 

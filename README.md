@@ -1,8 +1,8 @@
 # placas-sv
 
-Lector de placas de **El Salvador**, de carro y de moto, para cámaras de portón o de parqueo, videos
-y fotos tomadas con el teléfono. Encuentra cada placa en la imagen, la lee y anota cada vehículo
-que pasa. Si la cámara ve varios vehículos a la vez, sigue a cada uno por separado.
+Lector de placas de **El Salvador**, de carro y de moto. Conectas una cámara IP (o abres un
+video) y ves cada placa detectada y leída en vivo, o anotas cada vehículo que pasa con su hora y
+su foto. Si la cámara ve varios vehículos a la vez, sigue a cada uno por separado.
 
 - Lee el diseño 2011, el diseño 2000, las provisionales y las series cortas como «P 1 CAB».
 - Tipos: P, A, C, M, AB, CC, CD, MI, V y N.
@@ -25,51 +25,35 @@ Exámenes con fotos que los modelos no vieron al entrenar:
 
 1. Python 3.10 o más nuevo. Instala PyTorch según https://pytorch.org/get-started/locally/ (con
    CUDA si tienes tarjeta NVIDIA; sin tarjeta también funciona, más lento).
-2. El resto de las dependencias:
+2. El resto:
    ```powershell
    pip install -r requirements.txt
    ```
-3. Baja los modelos de **Releases** (`detector.safetensors` y `lector.safetensors`) y ponlos en
-   `modelos\`, junto a sus fichas `.json`:
-   ```powershell
-   gh release download v1.0 -R ramon3198/placas-sv -D modelos
-   ```
-4. La primera vez, torchvision baja los pesos base de COCO (unos 75 MB) a `pesos\`.
 
-Los `.cmd` usan el `python` del sistema. Para usar otro: `set PYTHON=C:\ruta\a\python.exe`.
+Los modelos (unos 95 MB) se bajan solos de **Releases** la primera vez que lo usas.
 
-## Cómo usarlo
+## Uso
 
 ```powershell
-.\ver_en_vivo.cmd video.mp4                        # video con las placas marcadas: http://127.0.0.1:8801
-.\ver_en_vivo.cmd rtsp://usuario:clave@IP:554/ruta # lo mismo, desde una cámara IP
-.\camara.cmd rtsp://usuario:clave@IP:554/ruta --panel   # registro de vehículos + panel: http://127.0.0.1:8800
-.\probar_lector.cmd C:\fotos\placas                # leer placas de fotos
-.\pruebas.cmd                                      # pruebas rápidas
+.\ver_en_vivo.cmd rtsp://usuario:clave@IP:554/ruta        # en vivo: abre http://127.0.0.1:8801
+.\ver_en_vivo.cmd video.mp4                               # lo mismo con un video
+.\camara.cmd rtsp://usuario:clave@IP:554/ruta --panel     # anota cada vehículo + panel: http://127.0.0.1:8800
 ```
 
-- **Clave de la cámara en un archivo:** `ver_en_vivo.cmd 192.168.0.100 --credenciales credenciales.txt`,
-  con `usuario: ...` y `contraseña: ...` en dos líneas. Prueba las rutas RTSP conocidas (Dahua,
-  Hikvision y genéricas) y nunca muestra la clave.
-- **Zonas a ignorar** (logos, fecha y hora de la cámara): `--ignorar x0,y0,x1,y1` en fracciones de
-  la imagen.
-- **Registro:** `camara.cmd` anota cada vehículo en `resultados\registro.csv` con su foto en
-  `resultados\capturas\`. Las lecturas dudosas salen como `revisar`.
-- **Para medir con tus fotos:** nombra cada foto con su placa (`P123456.jpg`) y corre
-  `probar_lector.cmd` con la carpeta.
+En Linux o Mac, igual con `python ver_en_vivo.py ...` y `python camara.py ...`.
 
-**Consejos para la cámara:** obturador rápido (1/250 s o menos) para que el carro no salga
-arrastrado, y la placa de frente, de 130 a 250 px de ancho, donde el carro va despacio. Las placas
-son datos personales: las páginas solo se abren desde la misma PC (127.0.0.1).
+- **La clave de la cámara en un archivo** (para no escribirla en la línea de comandos): pon
+  `usuario: ...` y `contraseña: ...` en dos líneas y usa
+  `.\ver_en_vivo.cmd 192.168.0.100 --credenciales credenciales.txt`. Prueba las rutas RTSP de Dahua,
+  Hikvision y genéricas, y nunca muestra la clave.
+- **Registro:** `camara.cmd` anota cada vehículo en `resultados\registro.csv` (se abre en Excel) con
+  su foto en `resultados\capturas\`. Las lecturas dudosas salen como `revisar`.
+- **Zonas a ignorar**, como la fecha y hora que dibuja la cámara: `--ignorar x0,y0,x1,y1`, en
+  fracciones de la imagen.
+- **Para leer mejor:** obturador de la cámara en 1/250 s o más rápido (para que el carro no salga
+  arrastrado) y la placa de frente, de 130 a 250 px de ancho, donde el carro va despacio.
 
-### Afinar el lector con tu cámara
-
-```powershell
-.\ver_en_vivo.cmd 192.168.0.100 --credenciales credenciales.txt --juntar   # guarda recortes en datos\reales
-.\revisar.cmd                                      # confirmarlos o corregirlos: http://127.0.0.1:8802
-.\generar_recortes.cmd --reales                    # arma entrenamiento y examen
-.\entrenar_lector.cmd 6 1.5 afinado --desde lector.safetensors
-```
+Las placas son datos personales: las páginas solo se abren desde la misma PC (127.0.0.1).
 
 ## Cómo funciona
 
@@ -83,39 +67,13 @@ imagen → DETECTOR → recorte de cada placa → LECTOR → "P123456" → forma
    (0-9, A-F y las letras de tipo), así que no puede confundir un 0 con una O.
 3. **Formato:** toda lectura debe ser un tipo seguido de 1 a 6 caracteres 0-9/A-F. Si no cumple,
    se marca como dudosa en vez de inventar.
-4. **Votos:** cada placa se lee con tres recortes distintos y, en video, en varios cuadros; se
-   anota la lectura que más se repite.
-
-## Entrenar desde cero
-
-Baja los datasets de la sección de licencias a `descargas\` (`dataset\`, `openimages\`,
-`autoria\` y `nocturnas\NightLPBD v1.0\`; las rutas exactas están al inicio de cada script).
-
-```powershell
-.\generar_placas.cmd                         # placas sintéticas + examen
-.\crear_examen_fotos.cmd --entreno           # placas pegadas en fotos de entrenamiento
-.\crear_examen_fotos.cmd --oi-entreno
-.\crear_examen_fotos.cmd --autos-entreno
-.\entrenar_detector_general.cmd mobilenet 2 8   # detector
-.\generar_recortes.cmd --rondas 2            # recortes de placas en fotos reales
-.\entrenar_lector.cmd 25 1.5 grande          # lector
-.\crear_examen_fotos.cmd                     # exámenes
-.\crear_examen_fotos.cmd --oi
-.\crear_examen_fotos.cmd --autos
-.\evaluar.cmd examen_fotos_autos             # medir todo el sistema
-```
-
-## Límites
-
-- El diseño de moto 2011 se dibujó a partir de pocas fotos.
-- Las placas de 1994 y anteriores no están modeladas.
-- Si cambia el diseño de la placa, hay que ajustar `generar_placas.py` y reentrenar el lector.
+4. **Votos:** cada placa se lee con tres recortes distintos y en varios cuadros del video; se anota
+   la lectura que más se repite.
 
 ## Licencias
 
-- Código: MIT (ver `LICENSE`).
-- Detector: torchvision (BSD).
-- Datos con los que se entrenaron los modelos, todos CC BY 4.0:
+- Código: MIT (ver `LICENSE`). Detector: torchvision (BSD).
+- Los modelos se entrenaron con estos datos, todos CC BY 4.0:
   - *Vehicle Registration Plates* (Augmented Startups, Roboflow Universe), vía
     `keremberke/license-plate-object-detection` en Hugging Face.
   - Open Images (Google), anotaciones vía `shravya11/vehicle-registration-plate`.

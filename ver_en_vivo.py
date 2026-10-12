@@ -4,7 +4,6 @@ Muestra un video o una cámara en vivo, con las placas detectadas y leídas enci
   ver_en_vivo.cmd video.mp4
   ver_en_vivo.cmd rtsp://usuario:clave@IP:554/ruta
   ver_en_vivo.cmd 192.168.0.100 --credenciales credenciales.txt   (la clave queda en el archivo)
-  ver_en_vivo.cmd 192.168.0.100 --credenciales ... --juntar   (guarda recortes para revisar y entrenar)
   ver_en_vivo.cmd video.mp4 --ignorar 0.88,0,1,0.15   (zona a ignorar: logos, fecha y hora de
                                                         la cámara; en fracciones x0,y0,x1,y1)
 
@@ -28,11 +27,11 @@ sys.path.insert(0, CARPETA)
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import av
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from camara_ip import ES_IP, conectar
-from camara import (CAMBIO_DE_CARRO, SILENCIO_PARA_CERRAR, VOTOS_MINIMOS, Pista, confiable, encima, marcar_cortadas,
-                    repetida)
+from camara import (CAMBIO_DE_CARRO, SILENCIO_PARA_CERRAR, VOTOS_MINIMOS, Pista, confiable, encima, fuente,
+                    marcar_cortadas, repetida)
 from lector import bonito
 from placas import LectorDePlacas
 
@@ -157,7 +156,6 @@ class Lecturas:
     def __init__(self):
         self.pistas = []
         self.ultima_vez = {}
-        self.recolector = None  # con --juntar: guarda recortes para revisarlos y entrenar
 
     def anotar(self, pasada, momento):
         texto = pasada.ganadora()
@@ -182,8 +180,6 @@ class Lecturas:
         })
         print(f"  {int(momento // 60)}:{momento % 60:04.1f}   {lectura['placa']:<10} {pasada.votos[texto]:2} votos  {seguridad:.0%}"
               + ("" if es_confiable else "   revisar"))
-        if self.recolector:
-            self.recolector.guardar(pasada, texto, momento, "ok" if es_confiable else "revisar")
 
     def actualizar(self, lecturas, foto, momento):
         libres = list(self.pistas)
@@ -317,12 +313,6 @@ def main():
         ignorar = [float(v) for v in sys.argv[sys.argv.index("--ignorar") + 1].split(",")]
     sistema = LectorDePlacas(insistir=False)  # video: una sola mirada por cuadro
     registro = Lecturas()
-    if "--juntar" in sys.argv:
-        from camara import Pasada
-        from juntar import Recolector
-
-        Pasada.guardar_recortes = True
-        registro.recolector = Recolector(fuente if ES_IP.match(fuente) else os.path.basename(fuente))
     servidor = ThreadingHTTPServer(("127.0.0.1", PUERTO), Atender)
     threading.Thread(target=servidor.serve_forever, daemon=True).start()
     print(f"Abre http://127.0.0.1:{PUERTO}  (Ctrl+C para salir)\n")
@@ -411,7 +401,7 @@ def reproducir(contenedor, analisis, registro, rapido, en_vivo):
         escala = min(1.0, ANCHO_PANTALLA / cuadro.width)
         ancho, alto = round(cuadro.width * escala), round(cuadro.height * escala)
         if letra is None:
-            letra = ImageFont.truetype("bahnschrift.ttf", max(16, ancho // 45))
+            letra = fuente(max(16, ancho // 45))
         vista = cuadro.to_image(width=ancho, height=alto)
         with analisis.cerrojo:
             dibujar(vista, analisis.lecturas, registro, letra, escala)

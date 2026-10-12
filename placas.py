@@ -8,6 +8,7 @@ El sistema completo: foto → detector → recorte → lector → texto de la pl
 """
 import os
 import sys
+import urllib.request
 from collections import Counter
 
 CARPETA = os.path.dirname(os.path.abspath(__file__))
@@ -18,6 +19,25 @@ import torchvision.transforms.functional as TF
 
 import detector
 import lector
+
+URL_MODELOS = "https://github.com/ramon3198/placas-sv/releases/download/v1.0/"
+
+
+def bajar_si_falta(ruta):
+    """La primera vez, baja el modelo de las Releases de GitHub (unos 95 MB entre los dos)."""
+    if os.path.exists(ruta):
+        return
+    nombre = os.path.basename(ruta)
+    print(f"Bajando {nombre} (solo la primera vez)…")
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    parcial = ruta + ".parcial"
+    try:
+        urllib.request.urlretrieve(URL_MODELOS + nombre, parcial)
+    except OSError as e:
+        raise SystemExit(f"No se pudo bajar {nombre} ({e}). Bájalo a mano de "
+                         f"https://github.com/ramon3198/placas-sv/releases y ponlo en {os.path.dirname(ruta)}")
+    os.replace(parcial, ruta)
+
 
 # El lector se entrenó con recortes un poco más grandes que la placa, como los que salen del
 # detector. Se lee el mismo recorte con tres márgenes distintos y se vota: si dos o tres
@@ -36,6 +56,8 @@ class LectorDePlacas:
             # PyTorch abre un hilo por núcleo y los deja girando a la espera de trabajo; con la
             # tarjeta haciendo el cálculo, eso solo calienta el procesador.
             torch.set_num_threads(2)
+        bajar_si_falta(detector_ruta or detector.MODELO)
+        bajar_si_falta(lector_ruta or lector.MODELO)
         self.detector = detector.cargar_entrenado(self.dispositivo, detector_ruta)
         self.lector = lector.cargar_entrenado(self.dispositivo, lector_ruta)
         self.umbral = umbral_deteccion

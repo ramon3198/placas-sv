@@ -1,12 +1,10 @@
-# Pesos de los modelos: van como descarga aparte (Releases de GitHub), no en el repositorio.
+# Los modelos se bajan solos de las Releases la primera vez.
 modelos/*.safetensors
-# torchvision baja aquí los pesos de COCO la primera vez.
-pesos/
+modelos/*.parcial
 
-# Datos y resultados: pueden tener placas reales, que son datos personales. Nunca se suben.
-datos/
+# Registro y fotos: tienen placas, que son datos personales. Nunca se suben.
 resultados/
-descargas/
+datos/
 credenciales*.txt
 *.mp4
 *.jpg

@@ -2,12 +2,11 @@ r"""
 Lee placas en vivo desde una cámara IP, un video o una webcam, y anota cada carro que pasa.
 
   camara.cmd rtsp://usuario:clave@IP:554/ruta-del-canal     (cámara IP)
-  camara.cmd resultados\video_prueba.mp4                    (un video)
+  camara.cmd video.mp4                                      (un video)
   camara.cmd --webcam "Nombre de la webcam"                 (webcam de la PC)
   camara.cmd 192.168.0.100 --credenciales credenciales.txt  (la clave queda en el archivo)
 
 Agregando --panel al final se abre además el panel web en http://127.0.0.1:8800
-Agregando --juntar se guardan recortes de cada placa para revisarlos (revisar.cmd) y entrenar.
 
 Por cada carro guarda:
   - una línea en resultados\registro.csv (fecha, hora, placa, votos, seguridad, estado, captura)
@@ -48,6 +47,14 @@ ANCHO_MINIMO = 50  # px: una placa más chica que esto no se puede leer con conf
 RESULTADOS = os.path.join(CARPETA, "resultados")
 REGISTRO = os.path.join(RESULTADOS, "registro.csv")
 CAPTURAS = os.path.join(RESULTADOS, "capturas")
+
+
+def fuente(tamano):
+    """Bahnschrift (la letra de las placas) viene con Windows; en otros sistemas, la de Pillow."""
+    try:
+        return ImageFont.truetype("bahnschrift.ttf", tamano)
+    except OSError:
+        return ImageFont.load_default(tamano)
 
 
 def distancia(a, b):
@@ -91,14 +98,10 @@ def marcar_cortadas(lecturas, ancho, alto, margen=3):
 class Pasada:
     """Lo que se vio mientras un carro estuvo frente a la cámara."""
 
-    guardar_recortes = False  # con --juntar: se guardan recortes de la placa para revisarlos y entrenar
-    RECORTES_POR_VEHICULO = 6
-
     def __init__(self):
         self.peso = defaultdict(float)
         self.votos = defaultdict(int)
         self.mejor_foto = {}
-        self.recortes = []  # (seguridad, recorte, texto leído en ese cuadro, caja dentro del recorte)
         self.otra, self.seguidas = None, 0
 
     def votar(self, lectura, foto):
@@ -107,15 +110,6 @@ class Pasada:
         self.votos[texto] += 1
         if texto not in self.mejor_foto or lectura["seguridad"] > self.mejor_foto[texto][0]:
             self.mejor_foto[texto] = (lectura["seguridad"], foto, lectura)
-        if self.guardar_recortes and foto is not None:
-            # La placa con un margen amplio, para después recortarla con márgenes al azar al entrenar.
-            x0, y0, x1, y1 = lectura["caja"]
-            mx, my = (x1 - x0) * 0.25, (y1 - y0) * 0.4
-            recorte = foto.crop((round(x0 - mx), round(y0 - my), round(x1 + mx), round(y1 + my)))
-            caja = [round(mx), round(my), round(mx + x1 - x0), round(my + y1 - y0)]
-            self.recortes.append((lectura["seguridad"], recorte, texto, caja))
-            self.recortes.sort(key=lambda r: -r[0])
-            del self.recortes[self.RECORTES_POR_VEHICULO:]
         # ¿Es otra placa distinta a la que va ganando, varias veces seguidas? Si difiere en un
         # solo carácter no cuenta: es casi seguro una mala lectura del mismo carro.
         ganadora = self.ganadora()
@@ -134,15 +128,12 @@ class Pasada:
         texto = self.otra
         nueva.peso[texto], nueva.votos[texto] = self.peso.pop(texto), self.votos.pop(texto)
         nueva.mejor_foto[texto] = self.mejor_foto.pop(texto)
-        nueva.recortes = [r for r in self.recortes if r[2] == texto]
-        self.recortes = [r for r in self.recortes if r[2] != texto]
         return nueva
 
 
 class Registro:
-    def __init__(self, es_video, recolector=None):
+    def __init__(self, es_video):
         self.es_video = es_video
-        self.recolector = recolector  # con --juntar: guarda recortes para revisarlos y entrenar
         self.ultima_vez = {}
         os.makedirs(CAPTURAS, exist_ok=True)
         if not os.path.exists(REGISTRO):
@@ -164,7 +155,7 @@ class Registro:
         foto = foto.copy()
         d = ImageDraw.Draw(foto)
         d.rectangle(lectura["caja"], outline=(0, 230, 90), width=max(2, foto.width // 300))
-        letra = ImageFont.truetype("bahnschrift.ttf", max(18, foto.width // 25))
+        letra = fuente(max(18, foto.width // 25))
         d.text((lectura["caja"][0], lectura["caja"][3] + 6), lectura["placa"], font=letra, fill=(0, 230, 90),
                stroke_width=3, stroke_fill=(0, 0, 0))
         nombre = f"{ahora:%Y-%m-%d_%H-%M-%S}_{texto}.jpg"
@@ -175,8 +166,6 @@ class Registro:
                                     f"{seguridad:.0%}", estado, nombre])
         print(f"  {hora:>16}   {lectura['placa']:<10}  {pasada.votos[texto]:2} votos   seguridad {seguridad:.0%}"
               + ("" if estado == "ok" else "   ← revisar"))
-        if self.recolector:
-            self.recolector.guardar(pasada, texto, momento, estado)
 
 
 def abrir(argumentos):
@@ -254,13 +243,7 @@ def vigilar(sistema, contenedor, registro, es_video):
 
 
 def main():
-    argumentos = [a for a in sys.argv[1:] if a not in ("--panel", "--juntar")]
-    recolector = None
-    if "--juntar" in sys.argv:
-        from juntar import Recolector
-
-        Pasada.guardar_recortes = True
-        recolector = Recolector(argumentos[0] if ES_IP.match(argumentos[0]) else os.path.basename(argumentos[0]))
+    argumentos = [a for a in sys.argv[1:] if a != "--panel"]
     if not argumentos:
         print(__doc__)
         return
@@ -278,7 +261,7 @@ def main():
                 time.sleep(5)
                 continue
             raise
-        registro = Registro(es_video, recolector)
+        registro = Registro(es_video)
         print(f"Vigilando {'el video' if es_video else 'la cámara'}. Cada carro que pase se anota en {REGISTRO}\n")
         try:
             vigilar(sistema, contenedor, registro, es_video)
