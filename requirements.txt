@@ -1,0 +1,8 @@
+# PyTorch con tarjeta de video: instálalo primero según https://pytorch.org/get-started/locally/
+# (por ejemplo, la versión con CUDA). Probado con torch 2.12 y torchvision 0.27.
+torch>=2.1
+torchvision>=0.16
+av>=11          # PyAV: video, cámaras RTSP y webcams
+pillow>=10
+numpy>=1.24
+safetensors>=0.4

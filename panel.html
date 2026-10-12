@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portón · Placas</title>
+<style>
+  :root {
+    --fondo: #f4f5f7;
+    --tarjeta: #ffffff;
+    --borde: #e3e6eb;
+    --texto: #1c2430;
+    --suave: #6b7686;
+    --acento: #1f63d6;
+    --ok: #1f9d55;
+    --aviso: #c98a00;
+    --sombra: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+    --placa-azul: #2368d8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #0f1419;
+      --tarjeta: #171d24;
+      --borde: #26303b;
+      --texto: #e6ebf1;
+      --suave: #8d99a8;
+      --acento: #5b9bff;
+      --ok: #3fbf7f;
+      --aviso: #e0a82e;
+      --sombra: 0 1px 2px rgba(0, 0, 0, .4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 18px 28px; border-bottom: 1px solid var(--borde); background: var(--tarjeta);
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+  h1 span { color: var(--suave); font-weight: 400; }
+  .estado { display: flex; align-items: center; gap: 8px; color: var(--suave); font-size: 13px; }
+  .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .punto.apagado { background: var(--suave); box-shadow: none; }
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 28px 48px; }
+  .cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .cifra { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 10px; padding: 16px 18px; box-shadow: var(--sombra); }
+  .cifra .nombre { color: var(--suave); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .cifra .valor { font-size: 28px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .barra { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .barra input {
+    flex: 1; min-width: 220px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--borde);
+    background: var(--tarjeta); color: var(--texto); font-size: 14px; outline: none;
+  }
+  .barra input:focus { border-color: var(--acento); }
+  .barra a {
+    padding: 10px 14px; border-radius: 8px; border: 1px solid var(--borde); background: var(--tarjeta);
+    color: var(--texto); text-decoration: none; font-size: 13px; white-space: nowrap;
+  }
+  .barra a:hover { border-color: var(--acento); }
+  .lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .paso { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 10px; overflow: hidden; box-shadow: var(--sombra); }
+  .paso img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #000; cursor: zoom-in; }
+  .info { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .detalle { color: var(--suave); font-size: 12px; text-align: right; line-height: 1.5; font-variant-numeric: tabular-nums; }
+  .detalle b { color: var(--texto); font-weight: 600; font-size: 13px; }
+  /* La placa se dibuja como la salvadoreña: blanco con franjas azules arriba y abajo. */
+  .placa {
+    font-family: Bahnschrift, "Arial Narrow", sans-serif; font-stretch: condensed; font-weight: 700;
+    font-size: 21px; letter-spacing: 1px; color: #111; padding: 9px 12px 7px; border-radius: 5px;
+    border: 1.5px solid #9aa4b2; position: relative; white-space: nowrap;
+    background: linear-gradient(to bottom, var(--placa-azul) 0 4px, #fff 4px calc(100% - 5px), var(--placa-azul) calc(100% - 5px));
+  }
+  .revisar { color: var(--aviso); font-weight: 600; }
+  .paso.dudoso { border-color: color-mix(in srgb, var(--aviso) 55%, var(--borde)); }
+  .vacio { text-align: center; color: var(--suave); padding: 64px 0; }
+  .grande { position: fixed; inset: 0; background: rgba(0, 0, 0, .85); display: none; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+  .grande img { max-width: 100%; max-height: 100%; border-radius: 6px; }
+  @media (max-width: 600px) {
+    header, main { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Portón <span>· lector de placas</span></h1>
+  <div class="estado"><div class="punto" id="punto"></div><span id="estado">Conectando…</span></div>
+</header>
+<main>
+  <section class="cifras">
+    <div class="cifra"><div class="nombre">Carros hoy</div><div class="valor" id="hoy">–</div></div>
+    <div class="cifra"><div class="nombre">Última hora</div><div class="valor" id="hora">–</div></div>
+    <div class="cifra"><div class="nombre">Placas distintas hoy</div><div class="valor" id="distintas">–</div></div>
+    <div class="cifra"><div class="nombre">Para revisar hoy</div><div class="valor" id="porRevisar">–</div></div>
+    <div class="cifra"><div class="nombre">Última placa</div><div class="valor" id="ultima">–</div></div>
+  </section>
+  <div class="barra">
+    <input id="buscar" placeholder="Buscar placa, por ejemplo P123 o 456" autocomplete="off">
+    <a href="/registro.csv" download>Descargar registro (CSV)</a>
+  </div>
+  <section class="lista" id="lista"></section>
+</main>
+<div class="grande" id="grande"><img alt=""></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let filas = [], firma = "";
+
+  const escapar = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const hoy = () => new Date().toISOString().slice(0, 10);
+
+  function pintar() {
+    const filtro = $("buscar").value.toUpperCase().replace(/[\s-]/g, "");
+    const visibles = filas.filter((f) => !filtro || f.placa.replace("-", "").includes(filtro));
+    $("lista").innerHTML = visibles.length
+      ? visibles.map((f) => `
+        <article class="paso${f.estado === "revisar" ? " dudoso" : ""}">
+          <img loading="lazy" src="/capturas/${encodeURIComponent(f.captura)}" alt="Captura de ${escapar(f.placa)}">
+          <div class="info">
+            <div class="placa">${escapar(f.placa)}</div>
+            <div class="detalle"><b>${escapar(f.hora)}</b><br>${escapar(f.fecha)}<br>${escapar(f.votos)} votos · ${escapar(f.seguridad)}${
+              f.estado === "revisar" ? '<br><span class="revisar">Revisar lectura</span>' : ""}</div>
+          </div>
+        </article>`).join("")
+      : `<div class="vacio">${filas.length ? "Ninguna placa coincide con la búsqueda." : "Todavía no ha pasado ningún carro."}</div>`;
+
+    const deHoy = filas.filter((f) => f.fecha === hoy());
+    $("hoy").textContent = deHoy.length;
+    $("distintas").textContent = new Set(deHoy.map((f) => f.placa)).size;
+    $("porRevisar").textContent = deHoy.filter((f) => f.estado === "revisar").length;
+    $("hora").textContent = filas[0] ? filas[0].hora : "–";
+    $("ultima").innerHTML = filas[0] ? `<span class="placa">${escapar(filas[0].placa)}</span>` : "–";
+  }
+
+  async function actualizar() {
+    try {
+      const r = await fetch("/api/registro", { cache: "no-store" });
+      const nuevas = await r.json();
+      const nueva = JSON.stringify(nuevas[0] ?? null) + nuevas.length;
+      if (nueva !== firma) { filas = nuevas; firma = nueva; pintar(); }
+      $("punto").classList.remove("apagado");
+      $("estado").textContent = "Actualizado " + new Date().toLocaleTimeString("es-SV");
+    } catch {
+      $("punto").classList.add("apagado");
+      $("estado").textContent = "Sin conexión con el lector";
+    }
+  }
+
+  $("buscar").addEventListener("input", pintar);
+  $("lista").addEventListener("click", (e) => {
+    if (e.target.tagName !== "IMG") return;
+    $("grande").querySelector("img").src = e.target.src;
+    $("grande").style.display = "flex";
+  });
+  $("grande").addEventListener("click", () => ($("grande").style.display = "none"));
+  actualizar();
+  setInterval(actualizar, 3000);
+</script>
+</body>
+</html>

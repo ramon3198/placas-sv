@@ -1,0 +1,16 @@
+# Pesos de los modelos: van como descarga aparte (Releases de GitHub), no en el repositorio.
+modelos/*.safetensors
+# torchvision baja aquí los pesos de COCO la primera vez.
+pesos/
+
+# Datos y resultados: pueden tener placas reales, que son datos personales. Nunca se suben.
+datos/
+resultados/
+descargas/
+credenciales*.txt
+*.mp4
+*.jpg
+*.png
+
+__pycache__/
+*.pyc
